@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import plotly as pt
 
 # ========== FONCTIONS ==========
 @st.cache_data
