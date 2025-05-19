@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
-import plotly as pt
+import plotly.express as px
 
 # ========== FONCTIONS ==========
+
 @st.cache_data
 def load_data():
     bacteries_df = pd.read_excel("TOUS_les_bacteries_a_etudier.xlsx")
@@ -62,7 +63,7 @@ with tab2:
 
     elif ab_option in other_ab_df.columns:
         df = other_ab_df
-        y_col = f"% R {ab_option}"
+        y_col = f"% R {ab_option}"  # ✅ Cette ligne corrige ton erreur
         fig = px.line(df, x="Week", y=y_col, title=f"% Résistance à {ab_option}")
         outliers = detect_tukey_outliers(df, y_col)
         fig.add_scatter(x=outliers["Week"], y=outliers[y_col], mode='markers',
