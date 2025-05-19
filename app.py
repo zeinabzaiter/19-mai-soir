@@ -36,7 +36,7 @@ if bacterie != "Staphylococcus aureus":
 # ====== MODULE STAPHYLOCOCCUS AUREUS ======
 st.header("Analyse : Staphylococcus aureus")
 
-tab1, tab2, tab3 = st.tabs(["Alertes par service", "Evolution résistance", "Phenotypes"])
+tab1, tab2, tab3 = st.tabs(["Alertes par service", "Evolution résistance", "Phénotypes"])
 
 # Onglet 1 : Alertes par service
 with tab1:
@@ -77,9 +77,9 @@ with tab2:
 with tab3:
     st.subheader("Evolution des phénotypes avec détection VRSA")
     pheno_df["week"] = pd.to_datetime(pheno_df["week"])
-    pheno_long = pheno_df.melt(id_vars="week", var_name="Phenotype", value_name="N")
+    pheno_long = pheno_df.melt(id_vars="week", var_name="Phénotype", value_name="N")
 
-    fig = px.line(pheno_long, x="week", y="N", color="Phenotype", title="Distribution des phénotypes")
+    fig = px.line(pheno_long, x="week", y="N", color="Phénotype", title="Distribution des phénotypes")
     vrsa_alerts = pheno_df[pheno_df["VRSA"] >= 1]
     fig.add_scatter(x=vrsa_alerts["week"], y=vrsa_alerts["VRSA"], mode='markers',
                     marker=dict(color='red', size=10), name="Alerte VRSA")
