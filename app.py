@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -54,7 +53,6 @@ with tab2:
         df = other_df
         x_col = "Week"
 
-    # Recherche flexible de colonne
     col_options = [
         f"% R {ab_option}",
         f"%{ab_option}",
