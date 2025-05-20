@@ -1,96 +1,129 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
+import os
 
-# ------------------ FONCTIONS ------------------
+st.set_page_config(page_title="Tableau de bord ASTER", layout="wide")
+st.title("🦠 Tableau de bord ASTER – Surveillance bactérienne")
 
-@st.cache_data
-def load_data():
-    df_bacteria = pd.read_excel("TOUS_les_bacteries_a_etudier.xlsx")
-    df_weekly = pd.read_excel("staph_aureus_hebdomadaire.xlsx")
-    df_tests = pd.read_csv("tests_par_semaine_antibiotiques_2024.csv")
-    df_other_ab = pd.read_excel("other_Antibiotiques_staph_aureus.xlsx")
-    df_pheno = pd.read_excel("staph_aureus_pheno_final.xlsx")
-    return df_bacteria, df_weekly, df_tests, df_other_ab, df_pheno
+# Fonction utilitaire pour charger un fichier
+def charger_fichier_excel(nom_fichier, colonnes_obligatoires=None, feuille=0):
+    try:
+        df = pd.read_excel(nom_fichier, sheet_name=feuille)
+        if colonnes_obligatoires:
+            for col in colonnes_obligatoires:
+                if col not in df.columns:
+                    st.warning(f"Colonne obligatoire '{col}' non trouvée dans {nom_fichier}")
+        return df
+    except FileNotFoundError:
+        st.error(f"❌ Fichier introuvable : {nom_fichier}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"❌ Erreur de chargement {nom_fichier} : {e}")
+        return pd.DataFrame()
 
-def detect_alerts_tukey(df, col):
-    q1 = df[col].quantile(0.25)
-    q3 = df[col].quantile(0.75)
-    iqr = q3 - q1
-    threshold = q3 + 1.5 * iqr
-    return df[col] > threshold
+# Fonction de nettoyage du nom de colonnes
+def nettoyer_colonnes(df):
+    df.columns = df.columns.str.strip()
+    return df
 
-def render_alerts_tab(df):
-    st.subheader("Alertes par service")
-    if "Libelle_Demandeur" in df.columns and "Vancomycine" in df.columns:
-        alert_rows = df[df["Vancomycine"] == "R"]
-        st.dataframe(alert_rows[["DATE_ENTREE", "Libelle_Demandeur", "Vancomycine"]])
-    else:
-        st.warning("Colonnes attendues non présentes dans les données.")
+# Chargement des fichiers avec noms exacts
+df_bacteries = charger_fichier_excel("TOUS_les_bacteries_a_etudier.xlsx", colonnes_obligatoires=["Espèce"])
+df_pheno = charger_fichier_excel("staph_aureus_pheno_final.xlsx")
+df_autres_ab = charger_fichier_excel("other_Antibiotiques_staph_aureus.xlsx")
+df_tests = pd.read_csv("tests_par_semaine_antibiotiques_2024.csv", sep=',')
+df_hebdo = charger_fichier_excel("staph_aureus_hebdomadaire.xlsx")
 
-def render_evolution_tab(df_weekly, df_tests):
-    st.subheader("Évolution des résistances par antibiotique")
-    ab_list = list(df_weekly.columns)
-    ab_list.remove("Semaine")
-
-    ab_option = st.selectbox("Choisir un antibiotique :", ab_list)
-
-    if ab_option:
-        df = df_weekly[["Semaine", ab_option]].dropna()
-        fig = px.line(df, x="Semaine", y=ab_option,
-                      title=f"% Résistance à {ab_option}")
-        
-        if ab_option not in ["Vancomycine", "VRSA"]:
-            alerts = detect_alerts_tukey(df, ab_option)
-            fig.add_scatter(x=df["Semaine"][alerts], y=df[ab_option][alerts],
-                            mode="markers", marker=dict(color="red", size=10),
-                            name="Alerte")
-
-        st.plotly_chart(fig)
-
-def render_pheno_tab(df_pheno):
-    st.subheader("Phénotypes (alerte si VRSA ≥ 1)")
-
-    if df_pheno.empty or "week" not in df_pheno.columns:
-        st.warning("Aucune donnée de phénotypes chargée.")
-        return
-
-    df = df_pheno.copy()
-    df["week"] = pd.to_datetime(df["week"])
-    vrsa_cols = [col for col in df.columns if "VRSA" in col]
-    alert_weeks = df[df[vrsa_cols].sum(axis=1) >= 1]
-
-    st.dataframe(alert_weeks)
-
-# ------------------ MAIN APP ------------------
-
-st.set_page_config(page_title="Dashboard ASTER", layout="wide")
-st.title("Tableau de bord ASTER – Surveillance bactérienne")
-
-try:
-    df_bacteria, df_weekly, df_tests, df_other_ab, df_pheno = load_data()
-except Exception as e:
-    st.error(f"Erreur de chargement des fichiers : {e}")
+# Nettoyage
+df_bacteries = nettoyer_colonnes(df_bacteries)
+df_pheno = nettoyer_colonnes(df_pheno)
+df_autres_ab = nettoyer_colonnes(df_autres_ab)
+df_tests = nettoyer_colonnes(df_tests)
+df_hebdo = nettoyer_colonnes(df_hebdo)
+# Vérification colonne 'Espèce'
+if "Espèce" not in df_bacteries.columns:
+    st.error("Colonne 'Espèce' non trouvée dans le fichier des bactéries.")
     st.stop()
 
-# ------------ Sélecteur de bactérie -------------
-selected_bacteria = st.selectbox("🦠 Bactéries disponibles", df_bacteria["Category"].unique())
+# Menu déroulant
+selected_bacteria = st.selectbox("🌿 Bactéries disponibles", df_bacteries["Espèce"].unique())
 
-# ---------- Pop-up automatique si staph -----------
-if selected_bacteria.lower().startswith("staph"):
-    with st.expander("🧬 Détails Staphylococcus aureus (cliquez pour voir)", expanded=True):
-        summary = df_pheno.describe().transpose()
-        st.write("Résumé des phénotypes :")
-        st.dataframe(summary)
+# Affichage spécial pour Staphylococcus aureus
+if selected_bacteria == "Staphylococcus aureus":
+    with st.expander("📋 Détails sur Staphylococcus aureus", expanded=True):
+        st.subheader("Analyse spécifique : Staphylococcus aureus")
+        st.write("Résumé des données hebdomadaires :")
+        if not df_hebdo.empty:
+            st.dataframe(df_hebdo)
+        else:
+            st.warning("Aucune donnée hebdomadaire chargée pour Staphylococcus aureus.")
 
-# ----------------- Onglets ------------------
+# Organisation par onglets
 tabs = st.tabs(["Alertes par service", "Évolution résistance", "Phénotypes"])
 
+# -------- Onglet 1 : Alertes par service --------
 with tabs[0]:
-    render_alerts_tab(df_bacteria)
+    st.subheader("Alertes par service")
+    if not df_tests.empty:
+        if "Libellé demandeur" in df_tests.columns:
+            alerts = df_tests.groupby("Libellé demandeur").size().reset_index(name="Nbre de tests")
+            st.bar_chart(alerts.set_index("Libellé demandeur"))
+        else:
+            st.warning("Colonne 'Libellé demandeur' manquante dans les données de tests.")
+    else:
+        st.warning("Aucune donnée de tests chargée.")
+import plotly.express as px
 
+# -------- Onglet 2 : Évolution résistance --------
 with tabs[1]:
-    render_evolution_tab(df_weekly, df_tests)
+    st.subheader("Évolution des résistances par antibiotique")
 
+    if not df_tests.empty:
+        ab_list = list(df_tests.columns)
+        ab_list = [col for col in ab_list if col not in ["Semaine", "Espèce", "Libellé demandeur"]]
+
+        ab_option = st.selectbox("Choisir un antibiotique :", ab_list)
+
+        try:
+            df = df_tests[["Semaine", ab_option]].dropna()
+
+            # 🔴 Règle spéciale pour VRSA/Vancomycine
+            if ab_option.lower() in ["vrsa", "vancomycine"]:
+                df["Alerte"] = df[ab_option].apply(lambda x: 1 if x >= 1 else 0)
+            else:
+                q1 = df[ab_option].quantile(0.25)
+                q3 = df[ab_option].quantile(0.75)
+                iqr = q3 - q1
+                seuil = q3 + 1.5 * iqr
+                df["Alerte"] = df[ab_option].apply(lambda x: 1 if x > seuil else 0)
+
+            fig = px.line(df, x="Semaine", y=ab_option, markers=True)
+            alertes = df[df["Alerte"] == 1]
+            fig.add_scatter(x=alertes["Semaine"], y=alertes[ab_option], mode='markers',
+                            marker=dict(color='red', size=10), name="Alarme")
+
+            st.plotly_chart(fig)
+
+        except KeyError:
+            st.error(f"Aucune donnée disponible pour {ab_option}")
+    else:
+        st.warning("Aucune donnée de tests chargée.")
+
+
+# -------- Onglet 3 : Phénotypes --------
 with tabs[2]:
-    render_pheno_tab(df_pheno)
+    st.subheader("Phénotypes (alerte si VRSA ≥ 1)")
+
+    if not df_pheno.empty:
+        if selected_bacteria in df_pheno.columns:
+            value = df_pheno[selected_bacteria].sum()
+            st.metric(label="Nombre de cas VRSA", value=int(value))
+            if value >= 1:
+                st.error("⚠️ Alerte déclenchée : au moins 1 cas de VRSA détecté.")
+            else:
+                st.success("✅ Aucun cas de VRSA détecté.")
+        else:
+            st.warning(f"Aucune donnée de phénotype pour {selected_bacteria}.")
+    else:
+        st.warning("Aucune donnée de phénotypes chargée.")
