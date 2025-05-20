@@ -74,7 +74,7 @@ except Exception as e:
     st.stop()
 
 # ------------ Sélecteur de bactérie -------------
-selected_bacteria = st.selectbox("🦠 Bactéries disponibles", df_bacteria["Espèce"].unique())
+selected_bacteria = st.selectbox("🦠 Bactéries disponibles", df_bacteria["Category"].unique())
 
 # ---------- Pop-up automatique si staph -----------
 if selected_bacteria.lower().startswith("staph"):
