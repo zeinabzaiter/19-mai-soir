@@ -1,75 +1,83 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 
-# ========== Chargement des données ==========
+# ======== Chargement des données ========
 @st.cache_data
 def load_data():
     bacteries_df = pd.read_excel("TOUS_les_bacteries_a_etudier.xlsx")
-    bacteries_df.columns = bacteries_df.columns.str.strip()
-
     staph_df = pd.read_excel("staph_aureus_hebdomadaire.xlsx")
     tests_df = pd.read_csv("tests_par_semaine_antibiotiques_2024.csv")
     other_df = pd.read_excel("other_Antibiotiques_staph_aureus.xlsx")
     pheno_df = pd.read_excel("staph_aureus_pheno_final.xlsx")
-
     return bacteries_df, staph_df, tests_df, other_df, pheno_df
 
 bacteries_df, staph_df, tests_df, other_df, pheno_df = load_data()
 
-# ========== Titre principal ==========
-st.title("Tableau de bord ASTER – Surveillance bactérienne")
+# ======== Sélection de la bactérie ========
+col_name = next((col for col in bacteries_df.columns if "espec" in col.lower()), None)
+if not col_name:
+    st.error("Colonne 'Espèce' introuvable dans le fichier.")
+    st.stop()
 
-# ========== Choix de bactérie ==========
-selected_bacteria = st.selectbox("Bactéries disponibles", bacteries_df["Espece"].unique())
+selected_bacteria = st.selectbox("🦠 Bactéries disponibles", bacteries_df[col_name].unique())
+st.title(f"Analyse : {selected_bacteria}")
 
-st.markdown(f"## Analyse : {selected_bacteria}")
+# ======== Tabs ========
 tabs = st.tabs(["Alertes par service", "Évolution résistance", "Phénotypes"])
 
-# ========== Onglet 1 : Alertes par service ==========
+# ======== Tab 1: Alertes par service ========
 with tabs[0]:
-    st.subheader("Alertes hebdomadaires par service")
-    if selected_bacteria == "Staphylococcus aureus":
-        alertes = staph_df[staph_df["Alerte"] == 1]
-        grouped = alertes.groupby(["Service", "Semaine"]).size().reset_index(name="Nombre d'alertes")
+    st.subheader("Alertes par service")
+    data = bacteries_df[bacteries_df[col_name] == selected_bacteria]
 
-        fig = px.scatter(grouped, x="Semaine", y="Service", size="Nombre d'alertes", color="Nombre d'alertes",
-                         title="Alertes Staphylococcus aureus par semaine et service")
-        st.plotly_chart(fig)
-    else:
-        st.info("Données d'alerte non disponibles pour cette bactérie.")
+    def detect_alerts(values, ab_name):
+        if ab_name.lower() in ["vancomycine", "vrsa"]:
+            return values >= 1
+        q1 = np.percentile(values, 25)
+        q3 = np.percentile(values, 75)
+        iqr = q3 - q1
+        seuil = q3 + 1.5 * iqr
+        return values > seuil
 
-# ========== Onglet 2 : Évolution de la résistance ==========
+    ab_cols = [col for col in data.columns if col not in ["Date", col_name]]
+    for ab in ab_cols:
+        values = data[ab].fillna(0)
+        alertes = detect_alerts(values, ab)
+        st.write(f"🔬 Antibiotique : **{ab}**")
+        st.dataframe(data[alertes])
+
+# ======== Tab 2: Évolution résistance ========
 with tabs[1]:
     st.subheader("Évolution des résistances par antibiotique")
-    if selected_bacteria == "Staphylococcus aureus":
-        ab_option = st.selectbox("Choisir un antibiotique :", tests_df.columns[1:])
-        df = tests_df[["Semaine", ab_option]]
+    st.markdown("Choisir un antibiotique :")
 
-        if df[ab_option].dropna().empty:
-            st.warning(f"Aucune donnée disponible pour {ab_option}")
-        else:
-            fig = px.line(df, x="Semaine", y=ab_option, title=f"% Résistance à {ab_option}")
-            st.plotly_chart(fig)
+    ab_options = [col for col in tests_df.columns if col not in ["Semaine"]]
+    ab_option = st.selectbox("Antibiotique", ab_options)
+
+    if ab_option in tests_df.columns:
+        df = tests_df[["Semaine", ab_option]].rename(columns={ab_option: "Résistance (%)"})
+        fig = px.line(df, x="Semaine", y="Résistance (%)", title=f"Évolution de la résistance à {ab_option}")
+        st.plotly_chart(fig)
     else:
-        st.info("Données d'antibiogramme non disponibles pour cette bactérie.")
+        st.warning(f"Aucune donnée disponible pour {ab_option}")
 
-# ========== Onglet 3 : Phénotypes ==========
+# ======== Tab 3: Phénotypes ========
 with tabs[2]:
     st.subheader("Phénotypes (alerte si VRSA ≥ 1)")
-    if selected_bacteria == "Staphylococcus aureus":
+
+    if not pheno_df.empty:
         if "week" in pheno_df.columns:
             pheno_df["week"] = pd.to_datetime(pheno_df["week"], errors='coerce')
-            pheno_df.dropna(subset=["week"], inplace=True)
-            vrsa_alerts = pheno_df[pheno_df["VRSA"] >= 1]
+        st.dataframe(pheno_df)
 
-            if not vrsa_alerts.empty:
-                fig = px.scatter(vrsa_alerts, x="week", y="Service", color="VRSA", size="VRSA",
-                                 title="Alertes VRSA par semaine et service")
-                st.plotly_chart(fig)
+        if "week" in pheno_df.columns and "VRSA" in pheno_df.columns:
+            alerts = pheno_df[pheno_df["VRSA"] >= 1]
+            if not alerts.empty:
+                st.warning("🚨 Alerte(s) détectée(s) pour VRSA :")
+                st.dataframe(alerts)
             else:
-                st.info("Aucune alerte VRSA détectée.")
-        else:
-            st.warning("Colonne 'week' manquante dans les données de phénotype.")
+                st.success("Aucune alerte VRSA détectée.")
     else:
-        st.info("Phénotypes non disponibles pour cette bactérie.")
+        st.info("Aucune donnée de phénotypes disponible.")
